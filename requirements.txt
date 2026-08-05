@@ -1,0 +1,11 @@
+# uni-pdf 의존성 (모두 라이선스 permissive — 무료·비공개·상업 배포 자유)
+pypdfium2>=4.30    # PDF 렌더링 (BSD-3, Google PDFium). PDF→JPG
+Pillow>=10.3       # 이미지 처리 (HPND). JPG→PDF, 썸네일
+pypdf>=4.2         # PDF 페이지 편집 (BSD-3). 순서변경·삭제·추가
+customtkinter>=6.0 # 라운드 UI (CC0/MIT). darkdetect(BSD-3)·packaging 자동 설치
+
+# 빌드 전용 (배포 exe/앱에는 포함 안 됨)
+pyinstaller>=6.6   # 단일 실행파일 패키징 (GPL + bootloader 예외 → 만든 실행파일은 자유 배포)
+
+# tkinter 는 파이썬 표준 라이브러리라 여기 없음.
+# Pretendard 폰트는 fonts/ 에 동봉 (SIL OFL 1.1). PyMuPDF(AGPL) 는 쓰지 않는다.

@@ -1,0 +1,40 @@
+uni-pdf License
+Copyright (c) 2026 uniflow.kr. All rights reserved.
+
+────────────────────────────────────────────────────────
+[한국어]
+
+uni-pdf 는 무료로 사용할 수 있습니다. 다만 아래 행위를 금지합니다.
+
+  1. 프로그램의 수정 및 2차적 저작물(개작·파생) 작성
+  2. 재배포(무상·유상 불문), 판매, 유료 제공, 번들 포함
+  3. 리버스 엔지니어링, 디컴파일, 역어셈블
+
+배포는 uniflow.kr 만 할 수 있습니다. 이용자는 프로그램을 무료로
+사용할 수 있으나, 위 행위는 허용되지 않습니다.
+
+※ 이 프로그램에 포함된 오픈소스 구성요소(CustomTkinter, pypdfium2,
+   Pillow, pypdf, Pretendard 등)는 각각의 원 라이선스를 따릅니다.
+   프로그램의 '정보' 화면에 고지되어 있습니다. 위 제한은 uniflow.kr 이
+   저작권을 보유한 uni-pdf 자체의 코드·디자인·리소스에만 적용됩니다.
+
+────────────────────────────────────────────────────────
+[English]
+
+uni-pdf is free to use. However, the following are prohibited:
+
+  1. Modifying the program or creating derivative works
+  2. Redistribution (free or paid), sale, or bundling
+  3. Reverse engineering, decompilation, or disassembly
+
+Only uniflow.kr may distribute this software. Users may use it free
+of charge, but the acts above are not permitted.
+
+* Open-source components bundled in this program (CustomTkinter,
+  pypdfium2, Pillow, pypdf, Pretendard, etc.) remain under their own
+  licenses, as noted in the program's "About" screen. The restrictions
+  above apply only to uni-pdf's own code, design, and resources, for
+  which uniflow.kr holds the copyright.
+
+────────────────────────────────────────────────────────
+Contact: uniflow.kr@gmail.com
