@@ -34,7 +34,7 @@ uni-pdf 는 PDF를 이미지로, 이미지를 PDF로 바꾸고 PDF 페이지를 
 ```
 pip install -r requirements.txt
 python uni_pdf.py    # 실행
-# Windows exe: pyinstaller --onefile --windowed --name uni-pdf-v1.0-windows --collect-all customtkinter --add-data "fonts;fonts" uni_pdf.py
+# Windows exe: python -m PyInstaller --onefile --windowed --name uni-pdf-v1.0-windows --icon uni-pdf.ico --collect-all customtkinter --add-data "fonts;fonts" uni_pdf.py
 ```
 
 ## 라이선스

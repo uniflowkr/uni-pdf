@@ -13,7 +13,7 @@ UI: CustomTkinter (둥근 모서리·색·Pretendard). 좌측 사이드바 + 우
 
 라이선스 깨끗한 조합만: pypdfium2(BSD) · Pillow(HPND) · pypdf(BSD) ·
   customtkinter(CC0/MIT) · darkdetect(BSD-3) · Pretendard(SIL OFL).
-빌드(win): pyinstaller --onefile --windowed --name uni-pdf --collect-all customtkinter --add-data "fonts;fonts" uni_pdf.py
+빌드(win): python -m PyInstaller --onefile --windowed --name uni-pdf --icon uni-pdf.ico --collect-all customtkinter --add-data "fonts;fonts" uni_pdf.py
 빌드(mac): ./build_mac.sh
 """
 import os
@@ -22,6 +22,7 @@ import threading
 import webbrowser
 
 import customtkinter as ctk
+import tkinter
 from tkinter import filedialog, messagebox, font as tkfont
 
 import pypdfium2 as pdfium
@@ -363,13 +364,20 @@ class PdfView(ctk.CTkFrame):
 class EditView(ctk.CTkFrame):
     COLS = 5
     TW = 130
+    WARN_PAGES = 40   # 이 쪽수 넘으면 열기 전에 시간 지연 경고 + 계속/취소 선택
 
     def __init__(self, master):
         super().__init__(master, fg_color=CARD, corner_radius=0)
         self.items = []
         self.thumbs = {}
         self.selected = set()
+        self._gen = 0   # 썸네일 작업 세대 — 새 PDF를 열거나 초기화하면 증가시켜 이전 작업을 중단
+        self._anchor = None   # Shift+클릭 범위 선택의 기준점(마지막으로 그냥 클릭한 카드)
         self._build()
+        # macOS 트랙패드 스크롤(<TouchpadScroll>)은 CTk 가 처리 안 하므로 직접 받는다.
+        # CTkFrame 은 bind_all 을 막아두어(예외), tkinter 기본 bind_all 을 직접 호출한다.
+        # bind_all 이지만 _on_touchpad 안에서 이 화면이 보일 때만 스크롤한다.
+        tkinter.Misc.bind_all(self, "<TouchpadScroll>", self._on_touchpad, add="+")
 
     def _build(self):
         pad = ctk.CTkFrame(self, fg_color="transparent")
@@ -411,12 +419,25 @@ class EditView(ctk.CTkFrame):
             n = len(PdfReader(path).pages)
         except Exception as e:
             messagebox.showerror("uni-pdf", f"PDF를 열 수 없습니다.\n\n{e}"); return
+        # 쪽 수가 많으면 미리 알리고 계속할지 물어본다 (썸네일 생성이 오래 걸릴 수 있음)
+        if n > self.WARN_PAGES:
+            if not messagebox.askyesno(
+                "uni-pdf — 쪽 수가 많습니다",
+                f"이 PDF는 {n}쪽입니다.\n\n"
+                f"쪽이 많으면 썸네일을 모두 만드는 데 시간이 걸릴 수 있습니다.\n"
+                f"만드는 동안에도 다른 PDF를 열거나 창을 닫으면 즉시 멈춥니다.\n\n"
+                f"계속 열까요?"):
+                return
+        self._gen += 1   # 이전 썸네일 작업이 있으면 중단시킴
+        self._anchor = None
         if not append:
             self.items, self.thumbs, self.selected = [], {}, set()
         for i in range(n):
             self.items.append((path, i))
         self._render()
         self._render_thumbs()
+        if not append:
+            self.after(0, self._scroll_top)   # 새 PDF는 맨 위부터 보이게(이전 스크롤 위치 초기화)
 
     def _render(self):
         for w in self.grid.winfo_children():
@@ -439,38 +460,141 @@ class EditView(ctk.CTkFrame):
             num.pack(pady=(0, 6))
             for w in (card, im, num):
                 w.bind("<Button-1>", lambda e, i=idx: self._toggle(i))
-            self.cards.append((card, im))
+                w.bind("<Shift-Button-1>", lambda e, i=idx: self._range_select(i))
+            self.cards.append((card, im, num))
         self.count.configure(text=f"{len(self.items)}쪽" if self.items else "")
         s = len(self.selected)
         self.selinfo.configure(text=f"{s}쪽 선택됨" if s else "카드를 눌러 선택하세요")
 
     def _render_thumbs(self):
-        todo = [k for k in {(p, i) for p, i in self.items} if k not in self.thumbs]
-        if not todo:
+        # 아직 썸네일이 없는 항목만, 화면에 놓인 순서(위→아래)를 유지해 중복 제거
+        seen, ordered = set(), []
+        for k in self.items:
+            if k not in self.thumbs and k not in seen:
+                seen.add(k); ordered.append(k)
+        if not ordered:
             return
+
+        gen = self._gen        # 이 작업의 세대 — 도중에 self._gen 이 바뀌면(새 PDF/초기화) 중단
+        total = len(ordered)
+
         def work():
-            for path, pidx in todo:
+            # 🔴 멈춤 버그 수정: 페이지마다 PDF 전체를 재오픈하던 것을
+            #    PDF별로 한 번만 열고 재사용한다. (문서를 self.items 순서대로 묶어
+            #    보이는 위쪽부터 채워지게 함)
+            by_path = {}
+            for path, pidx in ordered:
+                by_path.setdefault(path, []).append(pidx)
+            done = 0
+            for path, pidxs in by_path.items():
+                if gen != self._gen:
+                    return       # 중단됨 (다른 PDF를 열었거나 창을 닫음)
                 try:
                     doc = pdfium.PdfDocument(path)
-                    im = doc[pidx].render(scale=0.5).to_pil().convert("RGB")
-                    doc.close()
-                    im.thumbnail((self.TW, int(self.TW * 1.5)))
-                    self.after(0, lambda k=(path, pidx), im=im: self._set_thumb(k, im))
                 except Exception:
-                    pass
+                    continue
+                try:
+                    target_px = self.TW * 1.5   # 썸네일 폭보다 살짝 크게 렌더 후 축소(선명도 유지)
+                    for pidx in pidxs:
+                        if gen != self._gen:
+                            return   # 중단됨 — 즉시 렌더를 멈춰 CPU를 놓아준다
+                        try:
+                            page = doc[pidx]
+                            # 렌더 해상도를 썸네일 크기에 맞춰 동적 조정 —
+                            # 고정 scale=0.5 는 130px 썸네일에 필요 이상(약 5배 픽셀)을 그려 버려,
+                            # 도형 많은 무거운 페이지에서 렌더가 급격히 느려졌다. 필요한 픽셀만 그린다.
+                            w_pt = page.get_size()[0] or 1
+                            scale = max(0.1, min(1.0, target_px / w_pt))
+                            im = page.render(scale=scale).to_pil().convert("RGB")
+                            im.thumbnail((self.TW, int(self.TW * 1.5)))
+                            done += 1
+                            self.after(0, lambda k=(path, pidx), im=im, d=done, g=gen:
+                                       self._set_thumb(k, im, d, total, g))
+                        except Exception:
+                            pass
+                finally:
+                    doc.close()
         threading.Thread(target=work, daemon=True).start()
 
-    def _set_thumb(self, key, im):
+    def _set_thumb(self, key, im, done=0, total=0, gen=None):
+        if gen is not None and gen != self._gen:
+            return   # 이미 취소된 작업의 뒤늦은 콜백 — 무시
         cimg = ctk.CTkImage(light_image=im, size=im.size)
         self.thumbs[key] = cimg
         for idx, (path, pidx) in enumerate(self.items):
             if (path, pidx) == key and idx < len(self.cards):
-                _, im_lbl = self.cards[idx]
+                im_lbl = self.cards[idx][1]
                 im_lbl.configure(image=cimg, text="")
+        # 진행 표시 — 다 만들면 원래 선택 안내로 복귀
+        if total and done < total:
+            self.selinfo.configure(text=f"썸네일 만드는 중… {done}/{total} · 창을 닫으면 중단")
+        else:
+            self._update_selinfo()
+
+    def _update_selinfo(self):
+        s = len(self.selected)
+        self.selinfo.configure(text=f"{s}쪽 선택됨" if s else "카드를 눌러 선택하세요")
+
+    def _grid_canvas(self):
+        # CTkScrollableFrame 내부 캔버스 — 스크롤 제어용
+        return getattr(self.grid, "_parent_canvas", None)
+
+    def _on_touchpad(self, e):
+        # macOS Tk 9.0 은 트랙패드 두 손가락 스크롤을 <MouseWheel> 이 아니라
+        # <TouchpadScroll>(이벤트 타입 39)로 보낸다. CustomTkinter 는 이걸 처리하지 않아
+        # 트랙패드 스크롤이 전혀 먹지 않았다(마우스 휠은 CTk 가 처리). 여기서 직접 받는다.
+        if not self.winfo_ismapped():
+            return              # PDF 편집 화면이 보일 때만 스크롤
+        cv = self._grid_canvas()
+        if cv is None:
+            return
+        dy = e.delta & 0xFFFF   # delta = (dx<<16)|dy — 하위 16비트가 세로 이동량
+        if dy >= 0x8000:
+            dy -= 0x10000       # 부호 있는 16비트로 해석
+        if dy == 0:
+            return
+        bbox = cv.bbox("all")
+        if not bbox:
+            return
+        total = bbox[3] - bbox[1]
+        if total <= 0:
+            return
+        # OS 가 이미 자연 스크롤 방향을 반영하므로 <MouseWheel> 과 같은 -부호를 쓴다.
+        # yview_moveto 는 스크롤영역 대비 비율이라 dy 픽셀만큼 정확히 이동(1:1 자연스러움).
+        top = cv.yview()[0]
+        cv.yview_moveto(min(max(top + (-dy) / total, 0.0), 1.0))
+        return "break"
+
+    def _scroll_top(self):
+        cv = self._grid_canvas()
+        if cv is not None:
+            cv.yview_moveto(0)
+
+    def _paint(self, idx, on):
+        # 전체 그리드를 다시 그리면(_render) 화면이 깜빡이므로, 해당 카드 하나만 색을 바꾼다
+        if idx < len(self.cards):
+            card, _, num = self.cards[idx]
+            card.configure(border_color=(ACCENT if on else CARD_LINE))
+            num.configure(text_color=(ACCENT if on else SUB), font=F(12, on))
 
     def _toggle(self, idx):
-        self.selected.discard(idx) if idx in self.selected else self.selected.add(idx)
-        self._render()
+        on = idx not in self.selected
+        self.selected.add(idx) if on else self.selected.discard(idx)
+        self._paint(idx, on)
+        self._anchor = idx            # 다음 Shift+클릭의 범위 기준점
+        self._update_selinfo()
+
+    def _range_select(self, idx):
+        # Shift+클릭 — 기준점(마지막 클릭)부터 지금 클릭까지 사이를 모두 선택
+        if self._anchor is None:
+            self._toggle(idx); return
+        lo, hi = sorted((self._anchor, idx))
+        for i in range(lo, hi + 1):
+            if i not in self.selected:
+                self.selected.add(i)
+                self._paint(i, True)
+        self._anchor = idx
+        self._update_selinfo()
 
     def _move(self, d):
         if not self.selected:
@@ -481,13 +605,13 @@ class EditView(ctk.CTkFrame):
         for i in (order if d < 0 else reversed(order)):
             self.items[i + d], self.items[i] = self.items[i], self.items[i + d]
         self.selected = {i + d for i in self.selected}
-        self._render()
+        self._anchor = None; self._render()
 
     def _remove(self):
         if not self.selected:
             messagebox.showinfo("uni-pdf", "삭제할 페이지를 먼저 선택해 주세요."); return
         self.items = [it for i, it in enumerate(self.items) if i not in self.selected]
-        self.selected = set(); self._render()
+        self.selected = set(); self._anchor = None; self._render()
 
     def _save(self):
         if not self.items:
@@ -497,21 +621,41 @@ class EditView(ctk.CTkFrame):
         if not out:
             return
         items = list(self.items)
+        self._gen += 1   # 진행 중이던 썸네일 워커 중단 → 소스 PDF 핸들 해제(윈도우 파일 잠금 방지)
 
         def work():
+            from io import BytesIO
+            readers = {}
             try:
-                readers, writer = {}, PdfWriter()
+                writer = PdfWriter()
                 for path, pidx in items:
                     if path not in readers:
                         readers[path] = PdfReader(path)
                     writer.add_page(readers[path].pages[pidx])
+                # 소스가 열린 상태에서 결과를 먼저 메모리에 완성(지연 참조 해소)
+                buf = BytesIO()
+                writer.write(buf)
+                # 그런 다음 소스 리더를 모두 닫아 파일 잠금을 푼다 —
+                # 이래야 윈도우에서 원본과 같은 경로로 저장(덮어쓰기)해도 실패하지 않는다.
+                for r in readers.values():
+                    try:
+                        r.stream.close()
+                    except Exception:
+                        pass
+                readers.clear()
                 with open(out, "wb") as f:
-                    writer.write(f)
+                    f.write(buf.getvalue())
                 self.after(0, lambda: messagebox.showinfo(
                     "uni-pdf", f"{len(items)}쪽 PDF를 저장했습니다.\n{out}"))
             except Exception as e:
                 self.after(0, lambda e=e: messagebox.showerror(
                     "uni-pdf", f"오류가 발생했습니다.\n\n{e}"))
+            finally:
+                for r in readers.values():
+                    try:
+                        r.stream.close()
+                    except Exception:
+                        pass
         threading.Thread(target=work, daemon=True).start()
 
 

@@ -13,7 +13,7 @@ PyInstaller 는 크로스컴파일이 안 된다. **맥에서 빌드하면 맥 �
 
 ```
 pip install -r requirements.txt
-pyinstaller --onefile --windowed --name uni-pdf-v1.0-windows --collect-all customtkinter --add-data "fonts;fonts" uni_pdf.py
+python -m PyInstaller --onefile --windowed --name uni-pdf-v1.0-windows --icon uni-pdf.ico --collect-all customtkinter --add-data "fonts;fonts" uni_pdf.py
 ```
 - `--onefile` : 단일 exe (폴더형 onedir 안 씀 — 사용자 오용 방지, 확정)
 - `--windowed` : 실행 시 검은 콘솔창 안 뜨게

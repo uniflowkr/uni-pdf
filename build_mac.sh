@@ -25,7 +25,9 @@ IDENTITY="${UNIPDF_SIGN_IDENTITY:?build_mac.local.sh 에 UNIPDF_SIGN_IDENTITY �
 PROFILE="${UNIPDF_NOTARY_PROFILE:-uni-pdf-notary}"
 
 echo "① 빌드 (단일 .app)"
-pyinstaller --onefile --windowed --name "$APP" \
+# `pyinstaller` 실행파일이 PATH 에 없을 수 있어(python.org 파이썬의 bin 미등록) 모듈로 호출한다.
+python3 -m PyInstaller --onefile --windowed --name "$APP" \
+  --icon uni-pdf.icns \
   --osx-entitlements-file entitlements.plist \
   --collect-all customtkinter \
   --add-data "fonts:fonts" \
