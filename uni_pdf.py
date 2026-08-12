@@ -377,7 +377,13 @@ class EditView(ctk.CTkFrame):
         # macOS 트랙패드 스크롤(<TouchpadScroll>)은 CTk 가 처리 안 하므로 직접 받는다.
         # CTkFrame 은 bind_all 을 막아두어(예외), tkinter 기본 bind_all 을 직접 호출한다.
         # bind_all 이지만 _on_touchpad 안에서 이 화면이 보일 때만 스크롤한다.
-        tkinter.Misc.bind_all(self, "<TouchpadScroll>", self._on_touchpad, add="+")
+        # 🔴 <TouchpadScroll> 은 macOS Tk 에만 있는 이벤트다. Windows Tk 에서 그냥 바인딩하면
+        #    TclError: bad event type or keysym 로 앱이 시작하자마자 죽는다(2026-08-12 확인).
+        #    Tk 버전에 따라 macOS 에서도 없을 수 있으므로 플랫폼 대신 예외로 거른다.
+        try:
+            tkinter.Misc.bind_all(self, "<TouchpadScroll>", self._on_touchpad, add="+")
+        except tkinter.TclError:
+            pass   # 이 이벤트가 없는 플랫폼 — 휠 스크롤로만 동작한다
 
     def _build(self):
         pad = ctk.CTkFrame(self, fg_color="transparent")
